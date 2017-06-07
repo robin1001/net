@@ -5,6 +5,9 @@
 #ifndef UTILS_H_ 
 #define UTILS_H_
 
+#include <stdio.h>
+#include <stdlib.h>
+
 #define DISALLOW_COPY_AND_ASSIGN(Type) \
     Type(const Type &); \
     Type& operator=(const Type &)
