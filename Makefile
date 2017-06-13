@@ -1,17 +1,19 @@
 CXX = g++
-CXXFLAGS = -g -std=c++11
+CXXFLAGS = -g -std=c++11 -I .
 
 OBJ = net.o
 
-all: net-test
+TEST = test/net-test test/matrix-test
 
-net-test: net-test.cc $(OBJ)
+all: $(TEST)
+
+test/%-test: test/%-test.cc $(OBJ)
 	$(CXX) $(CXXFLAGS) $< $(OBJ) -o $@
 
 net.o: net.h utils.h
 
-
 .PHONY: clean
 
 clean:
-	rm -rf $(OBJ); rm -rf net-test
+	rm -rf $(OBJ); rm -rf $(TEST)
+
