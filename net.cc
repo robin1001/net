@@ -1,10 +1,15 @@
 // Created on 2017-06-07
 // Author: Binbin Zhang
-#include "net.h"
+
+#ifdef USE_BLAS
+#include <cblas.h>
+#endif
 
 #include <math.h>
 
 #include <algorithm>
+
+#include "net.h"
 
 template <typename DType>
 Matrix<DType>::Matrix(int32_t row, int32_t col): rows_(row), cols_(col), data_(NULL) {
@@ -40,12 +45,15 @@ void Matrix<DType>::Write(std::ostream &os) {
 
 template <typename DType>
 void Matrix<DType>::Mul(const Matrix<DType> &mat1, const Matrix<DType> &mat2, 
-        bool transpose) {
+        bool transpose, float alpha) {
     if (!transpose) {
         assert(mat1.NumCols() == mat2.NumRows());
-        this->Resize(mat1.NumRows(), mat2.NumCols());
+        assert(rows_ == mat1.NumRows());
+        assert(cols_ == mat2.NumCols());
+        //this->Resize(mat1.NumRows(), mat2.NumCols());
         for (int i = 0; i < mat1.NumRows(); i++) {
             for (int j = 0; j < mat2.NumCols(); j++) {
+                (*this)(i, j) *= alpha; 
                 for (int k = 0; k < mat1.NumCols(); k++) {
                     (*this)(i, j) += mat1(i, k) * mat2(k, j); 
                 }
@@ -54,9 +62,12 @@ void Matrix<DType>::Mul(const Matrix<DType> &mat1, const Matrix<DType> &mat2,
     }
     else {
         assert(mat1.NumCols() == mat2.NumCols());
+        assert(rows_ == mat1.NumRows());
+        assert(cols_ == mat2.NumRows());
         this->Resize(mat1.NumRows(), mat2.NumRows());
         for (int i = 0; i < mat1.NumRows(); i++) {
             for (int j = 0; j < mat2.NumRows(); j++) {
+                (*this)(i, j) *= alpha; 
                 for (int k = 0; k < mat1.NumCols(); k++) {
                     (*this)(i, j) += mat1(i, k) * mat2(j, k); 
                 }
@@ -64,6 +75,23 @@ void Matrix<DType>::Mul(const Matrix<DType> &mat1, const Matrix<DType> &mat2,
         }
     }
 }
+
+#ifdef USE_BLAS
+template <>
+void Matrix<float>::Mul(const Matrix<float> &mat1, const Matrix<float> &mat2, 
+        bool transpose, float alpha) {
+    assert((!transpose && mat1.NumCols() == mat2.NumRows() && 
+            rows_ == mat1.NumRows() && cols_ == mat2.NumCols()) ||
+            (transpose && mat1.NumCols() == mat2.NumCols() && 
+            rows_ == mat1.NumRows() && cols_ == mat2.NumRows()));
+    cblas_sgemm(CblasRowMajor, CblasNoTrans, 
+                !transpose ? CblasNoTrans : CblasTrans,
+                rows_, cols_, mat1.NumCols(), 1.0, 
+                mat1.Data(), mat1.NumCols(), 
+                mat2.Data(), mat2.NumCols(),
+                alpha, data_, cols_);
+}
+#endif
 
 template <typename DType>
 void Matrix<DType>::Transpose(const Matrix<DType> &mat) {
@@ -179,13 +207,7 @@ void FullyConnect::WriteData(std::ostream &os) {
 }
 
 void FullyConnect::ForwardFunc(const Matrix<float> &in, Matrix<float> *out) const {
-    for (int i = 0; i < out->NumRows(); i++) {
-        for (int j = 0; j < out->NumCols(); j++) {
-            for (int k = 0; k < in.NumCols(); k++) {
-                (*out)(i, j) += in(i, k) * w_(k, j);
-            }
-        }
-    }
+
 }
 
 void Net::Read(const std::string &filename) {

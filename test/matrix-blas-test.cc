@@ -1,4 +1,4 @@
-// Created on 2017-06-13
+// Created on 2017-06-15
 // Author: Binbin Zhang
 #include <iostream>
 #include <random>
@@ -7,10 +7,11 @@
 #include "timer.h"
 #include "parse-option.h"
 
+
 int main(int argc, char *argv[]) {
-    const char *usage = "Simple test\n";
+    const char *usage = "Simple blas matrix test\n";
     ParseOptions option(usage);
-    int dim = 256;
+    int dim = 5;
     option.Register("dim", &dim, "dim of the matrix");
     option.Read(argc, argv);
 
@@ -21,7 +22,7 @@ int main(int argc, char *argv[]) {
 
     std::default_random_engine generator(777);
     std::normal_distribution<float> distribution(0.0, 1.0);
-    int epoch = 10;
+    int epoch = 100;
     Timer timer;
     double t1 = 0, t2 = 0;
     for (int n = 0; n < epoch; n++) {
@@ -36,19 +37,19 @@ int main(int argc, char *argv[]) {
                 mat2(i, j) = distribution(generator);
             }
         }
-        Matrix<float> mat2_trans;
-        mat2_trans.Transpose(mat2);
-        Matrix<float> out1, out2;
+        Matrix<float> out1(dim, dim);
         timer.Reset();
         out1.Mul(mat1, mat2);
         t1 += timer.Elapsed();
-        
-        timer.Reset();
-        out2.Mul(mat1, mat2, true);
-        t2 += timer.Elapsed();
+        //for (int i = 0; i < out1.NumRows(); i++) {
+        //    for (int j = 0; j < out1.NumCols(); j++) {
+        //        std::cout << out1(i, j) << " ";
+        //    }
+        //    std::cout << "\n";
+        //}
     }
 
-    std::cout << t1 / epoch << " " << t2 / epoch << "\n";
+    std::cout << t1 / epoch << "\n";
     return 0;
 }
 

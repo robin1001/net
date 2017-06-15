@@ -36,8 +36,9 @@ public:
         assert(c < cols_);
         return *(data_ + r * cols_ + c);
     }
+    // *this = alpha*this + mat1*mat2
     void Mul(const Matrix<DType> &mat1, const Matrix<DType> &mat2, 
-             bool transpose = false);
+             bool transpose = false, float alpha = 0.0);
     void Transpose(const Matrix<DType> &mat);
 private:
     int32_t rows_, cols_;
