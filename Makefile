@@ -3,7 +3,8 @@ CXXFLAGS = -g -std=c++11 -I . -lopenblas -D USE_BLAS
 
 OBJ = net.o
 
-TEST = test/net-test test/matrix-major-test test/matrix-blas-test
+TEST = test/net-test test/matrix-major-test test/matrix-blas-test \
+       test/mnist-test
 
 all: $(TEST)
 

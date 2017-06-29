@@ -20,7 +20,7 @@ Matrix<DType>::Matrix(int32_t row, int32_t col): rows_(row), cols_(col), data_(N
 
 template <typename DType>
 void Matrix<DType>::Resize(int32_t row, int32_t col) {
-    if (row * col != rows_ * cols_) {
+    if (data_ == NULL || row * col != rows_ * cols_) {
         if (data_ != NULL) delete [] data_;
         rows_ = row;
         cols_ = col;
@@ -32,6 +32,7 @@ template <typename DType>
 void Matrix<DType>::Read(std::istream &is) {
     is.read((char *)&rows_, sizeof(int32_t)); 
     is.read((char *)&cols_, sizeof(int32_t)); 
+    Resize(rows_, cols_);
     is.read((char *)data_, sizeof(DType) * rows_ * cols_);
 }
 
@@ -40,7 +41,6 @@ void Matrix<DType>::Write(std::ostream &os) {
     os.write((char *)&rows_, sizeof(int32_t)); 
     os.write((char *)&cols_, sizeof(int32_t)); 
     os.write((char *)data_, sizeof(DType) * rows_ * cols_);
-
 }
 
 template <typename DType>
@@ -76,6 +76,17 @@ void Matrix<DType>::Mul(const Matrix<DType> &mat1, const Matrix<DType> &mat2,
     }
 }
 
+// cblas_sger
+template<typename DType>
+void Matrix<DType>::AddVec(const Vector<DType> &vec) {
+    assert(cols_ == vec.Dim());
+    for (int i = 0; i < rows_; i++) {
+        for (int j = 0; j < cols_; j++) {
+            (*this)(i, j) += vec(j); 
+        }
+    }
+}
+
 #ifdef USE_BLAS
 template <>
 void Matrix<float>::Mul(const Matrix<float> &mat1, const Matrix<float> &mat2, 
@@ -84,11 +95,9 @@ void Matrix<float>::Mul(const Matrix<float> &mat1, const Matrix<float> &mat2,
             rows_ == mat1.NumRows() && cols_ == mat2.NumCols()) ||
             (transpose && mat1.NumCols() == mat2.NumCols() && 
             rows_ == mat1.NumRows() && cols_ == mat2.NumRows()));
-    cblas_sgemm(CblasRowMajor, CblasNoTrans, 
-                !transpose ? CblasNoTrans : CblasTrans,
+    cblas_sgemm(CblasRowMajor, CblasNoTrans, !transpose ? CblasNoTrans : CblasTrans,
                 rows_, cols_, mat1.NumCols(), 1.0, 
-                mat1.Data(), mat1.NumCols(), 
-                mat2.Data(), mat2.NumCols(),
+                mat1.Data(), mat1.NumCols(), mat2.Data(), mat2.NumCols(),
                 alpha, data_, cols_);
 }
 #endif
@@ -103,7 +112,6 @@ void Matrix<DType>::Transpose(const Matrix<DType> &mat) {
     }
 }
 
-
 template <typename DType>
 Vector<DType>::Vector(int32_t dim): dim_(dim), data_(NULL) {
     if (dim_ != 0) {
@@ -113,7 +121,7 @@ Vector<DType>::Vector(int32_t dim): dim_(dim), data_(NULL) {
 
 template <typename DType>
 void Vector<DType>::Resize(int32_t dim) {
-    if (dim != dim_) {
+    if (data_ == NULL || dim != dim_) {
         if (data_ != NULL) delete [] data_;
         dim_ = dim;
         data_ = new DType[dim]();
@@ -123,6 +131,7 @@ void Vector<DType>::Resize(int32_t dim) {
 template <typename DType>
 void Vector<DType>::Read(std::istream &is) {
     is.read((char *)&dim_, sizeof(int32_t)); 
+    Resize(dim_);
     is.read((char *)data_, sizeof(DType) * dim_);
 }
 
@@ -199,6 +208,7 @@ void ReLU::ForwardFunc(const Matrix<float> &in, Matrix<float> *out) const {
 void FullyConnect::ReadData(std::istream &is) {
     w_.Read(is);
     b_.Read(is);
+    assert(w_.NumRows() == b_.Dim());
 }
 
 void FullyConnect::WriteData(std::ostream &os) {
@@ -207,9 +217,18 @@ void FullyConnect::WriteData(std::ostream &os) {
 }
 
 void FullyConnect::ForwardFunc(const Matrix<float> &in, Matrix<float> *out) const {
-
+    out->Mul(in, w_, true, 1.0);
+    out->AddVec(b_);
 }
 
+Net::~Net() {
+    for (int i = 0; i < layers_.size(); i++) {
+        delete layers_[i];
+    }
+    for (int i = 0; i < forward_buf_.size(); i++) {
+        delete forward_buf_[i];
+    }
+}
 void Net::Read(const std::string &filename) {
     std::ifstream is(filename, std::ifstream::binary);   
     if (is.fail()) {
@@ -246,6 +265,33 @@ void Net::Write(const std::string &filename) {
     } 
     for (int i = 0; i < layers_.size(); i++) {
         layers_[i]->Write(os);
+    }
+}
+
+void Net::Forward(const Matrix<float> &in, Matrix<float> *out) {
+    assert(out != NULL);
+    assert(layers_.size() > 0);
+    int num_layers = layers_.size();
+    if (forward_buf_.size() != num_layers) {
+        for (int i = 0; i < num_layers - 1; i++) {
+            forward_buf_.push_back(new Matrix<float>()); 
+        }
+    }
+    if (layers_.size() == 1) {
+        layers_[0]->Forward(in, out);
+    }
+    else {
+        layers_[0]->Forward(in, forward_buf_[0]);
+        for (int i = 1; i < layers_.size() - 1; i++) {
+            layers_[i]->Forward(*(forward_buf_[i-1]), forward_buf_[i]);
+        }
+        layers_[num_layers-1]->Forward(*(forward_buf_[num_layers-2]), out);
+    }
+}
+
+void Net::Info() const {
+    for (int i = 0; i < layers_.size(); i++) {
+        layers_[i]->Info();
     }
 }
 

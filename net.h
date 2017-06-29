@@ -9,9 +9,13 @@
 #include <assert.h>
 
 #include <vector>
+#include <iostream>
 #include <fstream>
 
 #include "utils.h"
+
+template <typename DType>
+class Vector;
 
 template <typename DType>
 class Matrix {
@@ -40,6 +44,7 @@ public:
     void Mul(const Matrix<DType> &mat1, const Matrix<DType> &mat2, 
              bool transpose = false, float alpha = 0.0);
     void Transpose(const Matrix<DType> &mat);
+    void AddVec(const Vector<DType> &vec);
 private:
     int32_t rows_, cols_;
     DType *data_;
@@ -94,6 +99,10 @@ public:
     int32_t InDim() const { return in_dim_; }
     int32_t OutDim() const { return out_dim_; }
     virtual LayerType Type() const { return type_; };
+    void Info() const {
+        std::cout << LayerTypeToString(type_) << " in_dim " << in_dim_ 
+                  << " out_dim " << out_dim_ << "\n";
+    }
 protected:
     virtual void ForwardFunc(const Matrix<float> &in, Matrix<float> *out) const {
         ERROR("not implement, or call this method by a quantize layer "
@@ -148,11 +157,7 @@ public:
     Net(std::string filename) {
         Read(filename);
     }
-    ~Net() {
-        for (int i = 0; i < layers_.size(); i++) {
-            delete layers_[i];
-        }
-    }
+    ~Net();
     void Read(const std::string &filename);
     void Write(const std::string &filename);
     int32_t InDim() const { 
@@ -163,8 +168,12 @@ public:
         assert(layers_.size() > 0);
         return layers_[layers_.size() - 1]->OutDim();
     }
+
+    void Forward(const Matrix<float> &in, Matrix<float> *out); 
+    void Info() const;
 protected:
     std::vector<Layer *> layers_;
+    std::vector<Matrix<float> *> forward_buf_;
 };
 
 
