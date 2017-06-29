@@ -62,8 +62,10 @@ void ReadMnistImage(std::string filename, Matrix<float> *data) {
 }
 
 int main(int argc, char *argv[]) {
-    const char *usage = "Simple mnist test\n";
+    const char *usage = "Simple test on mnist data\n";
     ParseOptions option(usage);
+    int batch = 32;
+    option.Register("batch", &batch, "batch size for net forward");
     option.Read(argc, argv);
 
     if (option.NumArgs() != 3) {
@@ -81,6 +83,33 @@ int main(int argc, char *argv[]) {
     Matrix<float> data;
     ReadMnistLabel(label_file, &label);
     ReadMnistImage(image_file, &data);
+    assert(label.size() == data.NumRows());
+    int num_images = label.size(), num_correct = 0;
+    for (int i = 0; i < num_images; i += batch) {
+        int real_batch = i + batch < num_images ? batch : num_images - i; 
+        Matrix<float> in(real_batch, data.NumCols()), out;
+        // copy
+        for (int m = 0; m < in.NumRows(); m++) {
+            for (int n = 0; n < in.NumCols(); n++) {
+                in(m, n) = data(i+m, n);
+            }
+        }
+
+        net.Forward(in, &out);
+
+        for (int m = 0; m < out.NumRows(); m++) {
+            float max = out(m, 0);
+            int max_idx = 0;
+            for (int n = 1; n < out.NumCols(); n++) {
+                if (out(m, n) > max) {
+                    max = out(m, n);
+                    max_idx = n;
+                }
+            }
+            if (max_idx == label[i+m]) num_correct++;
+        }
+    }
+    std::cout << "Accuracy " << static_cast<float>(num_correct) / num_images << "\n";
     return 0;
 }
 

@@ -217,7 +217,7 @@ void FullyConnect::WriteData(std::ostream &os) {
 }
 
 void FullyConnect::ForwardFunc(const Matrix<float> &in, Matrix<float> *out) const {
-    out->Mul(in, w_, true, 1.0);
+    out->Mul(in, w_, true);
     out->AddVec(b_);
 }
 
