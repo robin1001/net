@@ -14,6 +14,8 @@
 
 #include "utils.h"
 
+/* Matrix & Vector Defination */
+
 template <typename DType>
 class Vector;
 
@@ -78,11 +80,21 @@ private:
     DISALLOW_COPY_AND_ASSIGN(Vector);
 };
 
+/* Quantization Functions */
 
+void FindMinMax(float *data, int n, float *min, float *max);
+void ChooseQuantizationParams(float min, float max, 
+        float *scale, uint8_t *zero_point);
+void QuantizeData(float *src, int n, float scale, 
+    uint8_t zero_point, uint8_t *dest);
+
+
+/* Layer Defination */
 typedef enum {
     kFullyConnect = 0x00,
     kReLU,
     kSoftmax, 
+    kQuantizeFullyConnect,
     kUnknown
 } LayerType;
 
@@ -118,20 +130,6 @@ protected:
     LayerType type_;
 };
 
-class FullyConnect : public Layer {
-public:
-    FullyConnect(int32_t in_dim = 0, int32_t out_dim = 0): 
-        Layer(in_dim, out_dim) {
-        type_ = kFullyConnect;
-    }
-private:
-    void ReadData(std::istream &is);
-    void WriteData(std::ostream &os);
-    void ForwardFunc(const Matrix<float> &in, Matrix<float> *out) const;
-    Matrix<float> w_; // w_ is cols major, so it's size (out_dim, in_dim)
-    Vector<float> b_; // size(out_dim)
-};
-
 class ReLU: public Layer {
 public:
     ReLU(int32_t in_dim = 0, int32_t out_dim = 0): 
@@ -152,12 +150,49 @@ private:
     void ForwardFunc(const Matrix<float> &in, Matrix<float> *out) const;
 };
 
+class FullyConnect : public Layer {
+public:
+    FullyConnect(int32_t in_dim = 0, int32_t out_dim = 0): 
+        Layer(in_dim, out_dim) {
+        type_ = kFullyConnect;
+    }
+    const Matrix<float> & W() { return w_; }
+    const Vector<float> & B() { return b_; }
+private:
+    void ReadData(std::istream &is);
+    void WriteData(std::ostream &os);
+    void ForwardFunc(const Matrix<float> &in, Matrix<float> *out) const;
+    Matrix<float> w_; // w_ is cols major, so it's size (out_dim, in_dim)
+    Vector<float> b_; // size(out_dim)
+};
+
+class QuantizeFullyConnect : public Layer {
+public:
+    QuantizeFullyConnect(int32_t in_dim = 0, int32_t out_dim = 0): 
+        Layer(in_dim, out_dim) {
+        type_ = kQuantizeFullyConnect;
+    }
+    void QuantizeFrom(const Matrix<float> &w, const Vector<float> &b);
+private:
+    void ReadData(std::istream &is);
+    void WriteData(std::ostream &os);
+    void ForwardFunc(const Matrix<uint8_t> &in, Matrix<uint8_t> *out) const;
+    Matrix<uint8_t> w_; // w_ is cols major, so it's size (out_dim, in_dim)
+    Vector<uint8_t> b_; // size(out_dim)
+    float w_scale_, b_scale_;
+    uint8_t w_zero_point_, b_zero_point_;
+};
+
+
+/* Net Defination */
 class Net {
 public:
     Net(std::string filename) {
         Read(filename);
     }
+    Net() {}
     ~Net();
+    void Clear(); 
     void Read(const std::string &filename);
     void Write(const std::string &filename);
     int32_t InDim() const { 
@@ -171,10 +206,17 @@ public:
 
     void Forward(const Matrix<float> &in, Matrix<float> *out); 
     void Info() const;
+    void AddLayer(Layer *layer) {
+        layers_.push_back(layer);
+    }
+
+    // For Quantization
+    void ConvertToQuantizeNet(Net *quantize_net) const;
 protected:
     std::vector<Layer *> layers_;
     std::vector<Matrix<float> *> forward_buf_;
 };
+
 
 
 #endif

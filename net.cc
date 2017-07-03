@@ -11,6 +11,8 @@
 
 #include "net.h"
 
+/* Matrix & Vector Defination */
+
 template <typename DType>
 Matrix<DType>::Matrix(int32_t row, int32_t col): rows_(row), cols_(col), data_(NULL) {
     if (row * col != 0) {
@@ -141,11 +143,56 @@ void Vector<DType>::Write(std::ostream &os) {
     os.write((char *)data_, sizeof(DType) * dim_);
 }
 
+/* Quantization Functions */
+
+void FindMinMax(float *data, int n, float *min, float *max) {
+    *min = *max = data[0];
+    for (int i = 1; i < n; i++) {
+        if (data[i] > *max) *max = data[i];
+        if (data[i] < *min) *min = data[i];
+    }
+}
+
+/* Quantization Functions */
+void ChooseQuantizationParams(float min, float max, 
+        float *scale, uint8_t *zero_point) {
+    min = std::min(min, 0.f);
+    max = std::max(max, 0.f);
+    // the min and max quantized values, as floating-point values
+    const float qmin = 0;
+    const float qmax = 255;
+    // First determine the scale.
+    const double scale_double = (max - min) / (qmax - qmin);
+    const double initial_zero_point = qmin - min / scale_double;
+    std::uint8_t nudged_zero_point = 0;
+    if (initial_zero_point < qmin) {
+        nudged_zero_point = qmin;
+    } else if (initial_zero_point > qmax) {
+        nudged_zero_point = qmax;
+    } else {
+        nudged_zero_point =
+            static_cast<std::uint8_t>(std::round(initial_zero_point));
+    }
+    *zero_point = nudged_zero_point;
+    *scale = scale_double;
+}
+
+void QuantizeData(float *src, int n, float scale, 
+        uint8_t zero_point, uint8_t *dest) {
+    for (int i = 0; i < n; i++) {
+        float point = zero_point + src[i] / scale;  
+        float round_point = std::max(0.f, std::min(255.f, point));
+        dest[i] = static_cast<uint8_t>(std::round(round_point));
+    }
+}
+
+
 std::string LayerTypeToString(LayerType type) {
     switch (type) {
         case kFullyConnect: return "<FullyConnect>";
         case kReLU: return "<ReLU>";
         case kSoftmax: return "<Softmax>";
+        case kQuantizeFullyConnect: return "<QuantizeFullyConnect>";
         defaut: return "<Unknown>";
     }
 }
@@ -221,7 +268,50 @@ void FullyConnect::ForwardFunc(const Matrix<float> &in, Matrix<float> *out) cons
     out->AddVec(b_);
 }
 
+void QuantizeFullyConnect::QuantizeFrom(const Matrix<float> &w, 
+    const Vector<float> &b) {
+    w_.Resize(w.NumRows(), w.NumCols());
+    b_.Resize(b.Dim());
+    int w_size = w.NumRows() * w.NumCols();
+    float w_max, w_min, b_max, b_min;
+    FindMinMax(w.Data(), w_size, &w_min, &w_max);
+    ChooseQuantizationParams(w_min, w_max, &w_scale_, &w_zero_point_);
+    QuantizeData(w.Data(), w_size, w_scale_, w_zero_point_, w_.Data());
+    FindMinMax(b.Data(), b.Dim(), &b_min, &b_max);
+    ChooseQuantizationParams(b_min, b_max, &b_scale_, &b_zero_point_);
+    QuantizeData(b.Data(), b.Dim(), b_scale_, b_zero_point_, b_.Data());
+}
+
+void QuantizeFullyConnect::ReadData(std::istream &is) {
+    is.read((char *)&w_scale_, sizeof(float));
+    is.read((char *)&w_zero_point_, sizeof(uint8_t));
+    is.read((char *)&b_scale_, sizeof(float));
+    is.read((char *)&b_zero_point_, sizeof(uint8_t));
+    w_.Read(is);
+    b_.Read(is);
+    assert(w_.NumRows() == b_.Dim());
+}
+
+void QuantizeFullyConnect::WriteData(std::ostream &os) {
+    os.write((char *)&w_scale_, sizeof(float));
+    os.write((char *)&w_zero_point_, sizeof(uint8_t));
+    os.write((char *)&b_scale_, sizeof(float));
+    os.write((char *)&b_zero_point_, sizeof(uint8_t));
+    w_.Write(os);
+    b_.Write(os);
+}
+
+void QuantizeFullyConnect::ForwardFunc(const Matrix<uint8_t> &in, 
+        Matrix<uint8_t> *out) const {
+    //out->Mul(in, w_, true);
+    //out->AddVec(b_);
+}
+
 Net::~Net() {
+    Clear();
+}
+
+void Net::Clear() {
     for (int i = 0; i < layers_.size(); i++) {
         delete layers_[i];
     }
@@ -229,6 +319,7 @@ Net::~Net() {
         delete forward_buf_[i];
     }
 }
+
 void Net::Read(const std::string &filename) {
     std::ifstream is(filename, std::ifstream::binary);   
     if (is.fail()) {
@@ -248,6 +339,9 @@ void Net::Read(const std::string &filename) {
                 break;
             case kSoftmax:
                 layer = new Softmax();
+                break;
+            case kQuantizeFullyConnect:
+                layer = new QuantizeFullyConnect();
                 break;
             default:
                 ERROR("Unknown layer type %d", t);
@@ -292,6 +386,39 @@ void Net::Forward(const Matrix<float> &in, Matrix<float> *out) {
 void Net::Info() const {
     for (int i = 0; i < layers_.size(); i++) {
         layers_[i]->Info();
+    }
+}
+
+void Net::ConvertToQuantizeNet(Net *quantize_net) const {
+    quantize_net->Clear();
+    for (int i = 0; i < layers_.size(); i++) {
+        int32_t in_dim = layers_[i]->InDim(), out_dim = layers_[i]->OutDim();
+        LayerType type = layers_[i]->Type();
+        switch (type) {
+            case kFullyConnect: {
+                    QuantizeFullyConnect *quantize_fully_layer = 
+                        new QuantizeFullyConnect(in_dim, out_dim);
+                    FullyConnect *fully_layer = dynamic_cast<FullyConnect*>(layers_[i]); 
+                    const Matrix<float> &w = fully_layer->W();
+                    const Vector<float> &b = fully_layer->B();
+                    quantize_fully_layer->QuantizeFrom(w, b);
+                    quantize_net->AddLayer(quantize_fully_layer);
+                }
+                break;
+            case kSoftmax: {
+                    Softmax *softmax = new Softmax(in_dim, out_dim);
+                    quantize_net->AddLayer(softmax);
+                }
+                break;
+            case kReLU: {
+                    ReLU *relu = new ReLU(in_dim, out_dim);
+                    quantize_net->AddLayer(relu);
+                }
+                break;
+            default:
+                ERROR("Unable to quantize layer, type %s", 
+                        LayerTypeToString(type).c_str());
+        }
     }
 }
 
