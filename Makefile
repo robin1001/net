@@ -1,5 +1,5 @@
 CXX = g++
-CXXFLAGS = -g -std=c++11 -I . -lopenblas -D USE_BLAS
+CXXFLAGS = -g -std=c++11 -I . -lopenblas -lpthread -msse4.1 -D USE_BLAS -D QUANTIZE_BIAS
 
 OBJ = net.o
 

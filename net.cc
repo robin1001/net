@@ -10,6 +10,7 @@
 #include <algorithm>
 
 #include "net.h"
+#include "third_party/gemmlowp/public/gemmlowp.h"
 
 /* Matrix & Vector Defination */
 
@@ -143,6 +144,12 @@ void Vector<DType>::Write(std::ostream &os) {
     os.write((char *)data_, sizeof(DType) * dim_);
 }
 
+template <typename DType>
+void Vector<DType>::CopyFrom(const Vector<DType> &vec) {
+    Resize(vec.Dim());
+    memcpy(data_, vec.Data(), dim_ * sizeof(DType));
+}
+
 /* Quantization Functions */
 
 void FindMinMax(float *data, int n, float *min, float *max) {
@@ -153,7 +160,6 @@ void FindMinMax(float *data, int n, float *min, float *max) {
     }
 }
 
-/* Quantization Functions */
 void ChooseQuantizationParams(float min, float max, 
         float *scale, uint8_t *zero_point) {
     min = std::min(min, 0.f);
@@ -177,15 +183,49 @@ void ChooseQuantizationParams(float min, float max,
     *scale = scale_double;
 }
 
-void QuantizeData(float *src, int n, float scale, 
-        uint8_t zero_point, uint8_t *dest) {
+void QuantizeData(float *src, int n, float *scale, 
+        uint8_t *zero_point, uint8_t *dest) {
+    float min, max;
+    FindMinMax(src, n, &min, &max);
+    ChooseQuantizationParams(min, max, scale, zero_point);
     for (int i = 0; i < n; i++) {
-        float point = zero_point + src[i] / scale;  
+        float point = (*zero_point) + src[i] / (*scale);  
         float round_point = std::max(0.f, std::min(255.f, point));
         dest[i] = static_cast<uint8_t>(std::round(round_point));
     }
 }
 
+template <typename DType>
+void DequantizeData(DType *src, int n, float scale,
+        uint8_t zero_point, float *dest) {
+    for (int i = 0; i < n; i++) {
+        dest[i] = scale * (src[i] - zero_point);
+    }
+}
+
+// @params transpose: if mat2 need transpose
+template <bool transpose>
+void IntegerGemm(const Matrix<uint8_t> &mat1, const Matrix<uint8_t> &mat2, 
+        int offset1, int offset2, Matrix<int32_t> *out) {
+    assert((!transpose && mat1.NumCols() == mat2.NumRows() && 
+            out->NumRows() == mat1.NumRows() && out->NumCols() == mat2.NumCols()) ||
+            (transpose && mat1.NumCols() == mat2.NumCols() && 
+            out->NumRows() == mat1.NumRows() && out->NumCols() == mat2.NumRows()));
+    using namespace gemmlowp;
+    //left(right)-hand side
+    MatrixMap<const uint8_t, MapOrder::RowMajor> 
+        lhs(mat1.Data(), mat1.NumRows(), mat1.NumCols(), mat2.NumCols());
+    MatrixMap<const uint8_t, !transpose ? MapOrder::RowMajor : MapOrder::ColMajor> 
+        rhs(mat2.Data(), !transpose ? mat2.NumRows() : mat2.NumCols(), 
+        !transpose ? mat2.NumCols() : mat2.NumRows(), 
+        !transpose ? mat2.NumCols() : mat2.NumCols());
+    MatrixMap<int32_t, MapOrder::RowMajor>
+        result(out->Data(), out->NumRows(), out->NumCols(), out->NumCols());
+    const std::tuple<> empty_pipeline = {};
+    GemmContext context;
+    GemmWithOutputPipeline<uint8_t, int32_t, DefaultL8R8BitDepthParams>(
+        &context, lhs, rhs, &result, -offset1, -offset2, empty_pipeline);
+}
 
 std::string LayerTypeToString(LayerType type) {
     switch (type) {
@@ -213,7 +253,7 @@ void Layer::Write(std::ostream &os) {
     WriteData(os);
 }
 
-void Layer::Forward(const Matrix<float> &in, Matrix<float> *out) const {
+void Layer::Forward(const Matrix<float> &in, Matrix<float> *out) {
     assert(in.NumRows() != 0);
     assert(in.NumCols() != 0);
     assert(out != NULL);
@@ -221,7 +261,7 @@ void Layer::Forward(const Matrix<float> &in, Matrix<float> *out) const {
     ForwardFunc(in, out);
 }
 
-void Layer::Forward(const Matrix<uint8_t> &in, Matrix<uint8_t> *out) const {
+void Layer::Forward(const Matrix<uint8_t> &in, Matrix<uint8_t> *out) {
     assert(in.NumRows() != 0);
     assert(in.NumCols() != 0);
     assert(out != NULL);
@@ -229,7 +269,7 @@ void Layer::Forward(const Matrix<uint8_t> &in, Matrix<uint8_t> *out) const {
     ForwardFunc(in, out);
 }
 
-void Softmax::ForwardFunc(const Matrix<float> &in, Matrix<float> *out) const {
+void Softmax::ForwardFunc(const Matrix<float> &in, Matrix<float> *out) {
     for (int i = 0; i < in.NumRows(); i++) {
         float max = in(i, 0), sum = 0.0; 
         for (int j = 1; j < in.NumCols(); j++) {
@@ -244,7 +284,7 @@ void Softmax::ForwardFunc(const Matrix<float> &in, Matrix<float> *out) const {
     }
 }
 
-void ReLU::ForwardFunc(const Matrix<float> &in, Matrix<float> *out) const {
+void ReLU::ForwardFunc(const Matrix<float> &in, Matrix<float> *out) {
     for (int i = 0; i < in.NumRows(); i++) {
         for (int j = 0; j < in.NumCols(); j++) {
             (*out)(i, j) = std::max(in(i, j), 0.0f);
@@ -263,7 +303,7 @@ void FullyConnect::WriteData(std::ostream &os) {
     b_.Write(os);
 }
 
-void FullyConnect::ForwardFunc(const Matrix<float> &in, Matrix<float> *out) const {
+void FullyConnect::ForwardFunc(const Matrix<float> &in, Matrix<float> *out) {
     out->Mul(in, w_, true);
     out->AddVec(b_);
 }
@@ -271,40 +311,67 @@ void FullyConnect::ForwardFunc(const Matrix<float> &in, Matrix<float> *out) cons
 void QuantizeFullyConnect::QuantizeFrom(const Matrix<float> &w, 
     const Vector<float> &b) {
     w_.Resize(w.NumRows(), w.NumCols());
-    b_.Resize(b.Dim());
     int w_size = w.NumRows() * w.NumCols();
-    float w_max, w_min, b_max, b_min;
-    FindMinMax(w.Data(), w_size, &w_min, &w_max);
-    ChooseQuantizationParams(w_min, w_max, &w_scale_, &w_zero_point_);
-    QuantizeData(w.Data(), w_size, w_scale_, w_zero_point_, w_.Data());
-    FindMinMax(b.Data(), b.Dim(), &b_min, &b_max);
-    ChooseQuantizationParams(b_min, b_max, &b_scale_, &b_zero_point_);
-    QuantizeData(b.Data(), b.Dim(), b_scale_, b_zero_point_, b_.Data());
+    QuantizeData(w.Data(), w_size, &w_scale_, &w_zero_point_, w_.Data());
+#ifdef QUANTIZE_BIAS
+    b_.Resize(b.Dim()); 
+    dequantize_b_.Resize(b.Dim());
+    QuantizeData(b.Data(), b.Dim(), &b_scale_, &b_zero_point_, b_.Data());
+    DequantizeData(b_.Data(), b_.Dim(), b_scale_, b_zero_point_, dequantize_b_.Data());
+#else
+    b_.CopyFrom(b);
+#endif
 }
 
 void QuantizeFullyConnect::ReadData(std::istream &is) {
     is.read((char *)&w_scale_, sizeof(float));
     is.read((char *)&w_zero_point_, sizeof(uint8_t));
+    w_.Read(is);
+#ifdef QUANTIZE_BIAS
     is.read((char *)&b_scale_, sizeof(float));
     is.read((char *)&b_zero_point_, sizeof(uint8_t));
-    w_.Read(is);
     b_.Read(is);
+    dequantize_b_.Resize(b_.Dim());
+    DequantizeData(b_.Data(), b_.Dim(), b_scale_, b_zero_point_, dequantize_b_.Data());
+#else
+    b_.Read(is);
+#endif
     assert(w_.NumRows() == b_.Dim());
 }
 
 void QuantizeFullyConnect::WriteData(std::ostream &os) {
     os.write((char *)&w_scale_, sizeof(float));
     os.write((char *)&w_zero_point_, sizeof(uint8_t));
+    w_.Write(os);
+#ifdef QUANTIZE_BIAS
     os.write((char *)&b_scale_, sizeof(float));
     os.write((char *)&b_zero_point_, sizeof(uint8_t));
-    w_.Write(os);
+#endif
     b_.Write(os);
 }
 
-void QuantizeFullyConnect::ForwardFunc(const Matrix<uint8_t> &in, 
-        Matrix<uint8_t> *out) const {
-    //out->Mul(in, w_, true);
-    //out->AddVec(b_);
+void QuantizeFullyConnect::ForwardFunc(const Matrix<float> &in, 
+        Matrix<float> *out) {
+    // quantize in
+    float in_scale;
+    uint8_t in_zero_point;
+    quantize_in_.Resize(in.NumRows(), in.NumCols());
+    QuantizeData(in.Data(), in.NumRows() * in.NumCols(), &in_scale, 
+        &in_zero_point, quantize_in_.Data());
+    //// uint8 gemm
+    quantize_out_.Resize(out->NumRows(), out->NumCols());
+    IntegerGemm<true>(quantize_in_, w_, static_cast<int>(in_zero_point), 
+        static_cast<int>(w_zero_point_), &quantize_out_);
+    //// dequantize
+    float out_scale = in_scale * w_scale_;
+    DequantizeData(quantize_out_.Data(), out->NumRows() * out->NumCols(), 
+        out_scale, 0, out->Data());
+    //// add bias
+#ifdef QUANTIZE_BIAS
+    out->AddVec(dequantize_b_); 
+#else
+    out->AddVec(b_);
+#endif
 }
 
 Net::~Net() {
@@ -389,7 +456,7 @@ void Net::Info() const {
     }
 }
 
-void Net::ConvertToQuantizeNet(Net *quantize_net) const {
+void Net::Quantize(Net *quantize_net) const {
     quantize_net->Clear();
     for (int i = 0; i < layers_.size(); i++) {
         int32_t in_dim = layers_[i]->InDim(), out_dim = layers_[i]->OutDim();

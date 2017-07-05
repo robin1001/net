@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <string.h>
 #include <assert.h>
 
 #include <vector>
@@ -74,6 +75,7 @@ public:
         assert(n < dim_);
         return *(data_ + n);
     }
+    void CopyFrom(const Vector<DType> &vec);
 private:
     int32_t dim_;
     DType *data_;
@@ -106,8 +108,8 @@ public:
         in_dim_(in_dim), out_dim_(out_dim), type_(kUnknown) {}
     void Read(std::istream &is);
     void Write(std::ostream &os);
-    void Forward(const Matrix<float> &in, Matrix<float> *out) const;
-    void Forward(const Matrix<uint8_t> &in, Matrix<uint8_t> *out) const; 
+    void Forward(const Matrix<float> &in, Matrix<float> *out);
+    void Forward(const Matrix<uint8_t> &in, Matrix<uint8_t> *out); 
     int32_t InDim() const { return in_dim_; }
     int32_t OutDim() const { return out_dim_; }
     virtual LayerType Type() const { return type_; };
@@ -116,11 +118,11 @@ public:
                   << " out_dim " << out_dim_ << "\n";
     }
 protected:
-    virtual void ForwardFunc(const Matrix<float> &in, Matrix<float> *out) const {
+    virtual void ForwardFunc(const Matrix<float> &in, Matrix<float> *out) {
         ERROR("not implement, or call this method by a quantize layer "
               "layer type: %s", LayerTypeToString(type_).c_str());
     }
-    virtual void ForwardFunc(const Matrix<uint8_t> &in, Matrix<uint8_t> *out) const {
+    virtual void ForwardFunc(const Matrix<uint8_t> &in, Matrix<uint8_t> *out) {
         ERROR("not implement, or call this method by a float layer "
               "layer type: %s", LayerTypeToString(type_).c_str());
     }
@@ -137,7 +139,7 @@ public:
         type_ = kReLU;
     }
 private:
-    void ForwardFunc(const Matrix<float> &in, Matrix<float> *out) const;
+    void ForwardFunc(const Matrix<float> &in, Matrix<float> *out);
 };
 
 class Softmax: public Layer {
@@ -147,7 +149,7 @@ public:
         type_ = kSoftmax;
     }
 private:
-    void ForwardFunc(const Matrix<float> &in, Matrix<float> *out) const;
+    void ForwardFunc(const Matrix<float> &in, Matrix<float> *out);
 };
 
 class FullyConnect : public Layer {
@@ -161,7 +163,7 @@ public:
 private:
     void ReadData(std::istream &is);
     void WriteData(std::ostream &os);
-    void ForwardFunc(const Matrix<float> &in, Matrix<float> *out) const;
+    void ForwardFunc(const Matrix<float> &in, Matrix<float> *out);
     Matrix<float> w_; // w_ is cols major, so it's size (out_dim, in_dim)
     Vector<float> b_; // size(out_dim)
 };
@@ -176,11 +178,20 @@ public:
 private:
     void ReadData(std::istream &is);
     void WriteData(std::ostream &os);
-    void ForwardFunc(const Matrix<uint8_t> &in, Matrix<uint8_t> *out) const;
+    void ForwardFunc(const Matrix<float> &in, Matrix<float> *out);
     Matrix<uint8_t> w_; // w_ is cols major, so it's size (out_dim, in_dim)
-    Vector<uint8_t> b_; // size(out_dim)
-    float w_scale_, b_scale_;
-    uint8_t w_zero_point_, b_zero_point_;
+    float w_scale_;
+    uint8_t w_zero_point_;
+#ifdef QUANTIZE_BIAS
+    Vector<uint8_t> b_;
+    Vector<float> dequantize_b_;
+    float b_scale_;
+    uint8_t b_zero_point_;
+#else
+    Vector<float> b_; // use float bias
+#endif
+    Matrix<int32_t> quantize_out_;
+    Matrix<uint8_t> quantize_in_;
 };
 
 
@@ -211,7 +222,7 @@ public:
     }
 
     // For Quantization
-    void ConvertToQuantizeNet(Net *quantize_net) const;
+    void Quantize(Net *quantize_net) const;
 protected:
     std::vector<Layer *> layers_;
     std::vector<Matrix<float> *> forward_buf_;

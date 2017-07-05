@@ -109,7 +109,7 @@ int main(int argc, char *argv[]) {
             if (max_idx == label[i+m]) num_correct++;
         }
     }
-    std::cout << "Accuracy " << static_cast<float>(num_correct) / num_images << "\n";
+    printf("Accuracy %.6lf\n", static_cast<double>(num_correct) / num_images);
     return 0;
 }
 
