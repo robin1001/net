@@ -3,7 +3,7 @@
 #include <iostream>
 
 #include "net.h"
-#include "parse-option.h"
+#include "../test/parse-option.h"
 
 int main(int argc, char *argv[]) {
     const char *usage = "Convert float net to quantize net\n";

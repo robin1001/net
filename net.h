@@ -95,6 +95,8 @@ void QuantizeData(float *src, int n, float scale,
 typedef enum {
     kFullyConnect = 0x00,
     kReLU,
+    kSigmoid,
+    kTanh,
     kSoftmax, 
     kQuantizeFullyConnect,
     kUnknown
@@ -104,8 +106,8 @@ std::string LayerTypeToString(LayerType type);
 
 class Layer {
 public:
-    Layer(int32_t in_dim = 0, int32_t out_dim = 0): 
-        in_dim_(in_dim), out_dim_(out_dim), type_(kUnknown) {}
+    Layer(int32_t in_dim = 0, int32_t out_dim = 0, LayerType type = kUnknown): 
+        in_dim_(in_dim), out_dim_(out_dim), type_(type) {}
     void Read(std::istream &is);
     void Write(std::ostream &os);
     void Forward(const Matrix<float> &in, Matrix<float> *out);
@@ -135,9 +137,23 @@ protected:
 class ReLU: public Layer {
 public:
     ReLU(int32_t in_dim = 0, int32_t out_dim = 0): 
-        Layer(in_dim, out_dim) {
-        type_ = kReLU;
-    }
+        Layer(in_dim, out_dim, kReLU) {}
+private:
+    void ForwardFunc(const Matrix<float> &in, Matrix<float> *out);
+};
+
+class Sigmoid: public Layer {
+public:
+    Sigmoid(int32_t in_dim = 0, int32_t out_dim = 0): 
+        Layer(in_dim, out_dim, kSigmoid) {}
+private:
+    void ForwardFunc(const Matrix<float> &in, Matrix<float> *out);
+};
+
+class Tanh: public Layer {
+public:
+    Tanh(int32_t in_dim = 0, int32_t out_dim = 0): 
+        Layer(in_dim, out_dim, kTanh) {}
 private:
     void ForwardFunc(const Matrix<float> &in, Matrix<float> *out);
 };
@@ -145,9 +161,7 @@ private:
 class Softmax: public Layer {
 public:
     Softmax(int32_t in_dim = 0, int32_t out_dim = 0): 
-        Layer(in_dim, out_dim) {
-        type_ = kSoftmax;
-    }
+        Layer(in_dim, out_dim, kSoftmax) {}
 private:
     void ForwardFunc(const Matrix<float> &in, Matrix<float> *out);
 };
@@ -155,9 +169,7 @@ private:
 class FullyConnect : public Layer {
 public:
     FullyConnect(int32_t in_dim = 0, int32_t out_dim = 0): 
-        Layer(in_dim, out_dim) {
-        type_ = kFullyConnect;
-    }
+        Layer(in_dim, out_dim, kFullyConnect) {}
     const Matrix<float> & W() { return w_; }
     const Vector<float> & B() { return b_; }
 private:
@@ -171,9 +183,7 @@ private:
 class QuantizeFullyConnect : public Layer {
 public:
     QuantizeFullyConnect(int32_t in_dim = 0, int32_t out_dim = 0): 
-        Layer(in_dim, out_dim) {
-        type_ = kQuantizeFullyConnect;
-    }
+        Layer(in_dim, out_dim, kQuantizeFullyConnect) {}
     void QuantizeFrom(const Matrix<float> &w, const Vector<float> &b);
 private:
     void ReadData(std::istream &is);

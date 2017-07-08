@@ -231,6 +231,8 @@ std::string LayerTypeToString(LayerType type) {
     switch (type) {
         case kFullyConnect: return "<FullyConnect>";
         case kReLU: return "<ReLU>";
+        case kSigmoid: return "<Sigmoid>";
+        case kTanh: return "<Tanh>";
         case kSoftmax: return "<Softmax>";
         case kQuantizeFullyConnect: return "<QuantizeFullyConnect>";
         defaut: return "<Unknown>";
@@ -288,6 +290,22 @@ void ReLU::ForwardFunc(const Matrix<float> &in, Matrix<float> *out) {
     for (int i = 0; i < in.NumRows(); i++) {
         for (int j = 0; j < in.NumCols(); j++) {
             (*out)(i, j) = std::max(in(i, j), 0.0f);
+        }
+    }
+}
+
+void Sigmoid::ForwardFunc(const Matrix<float> &in, Matrix<float> *out) {
+    for (int i = 0; i < in.NumRows(); i++) {
+        for (int j = 0; j < in.NumCols(); j++) {
+            (*out)(i, j) = 1.0 / (1 + exp(-in(i, j)));
+        }
+    }
+}
+
+void Tanh::ForwardFunc(const Matrix<float> &in, Matrix<float> *out) {
+    for (int i = 0; i < in.NumRows(); i++) {
+        for (int j = 0; j < in.NumCols(); j++) {
+            (*out)(i, j) = tanh(in(i, j));
         }
     }
 }
@@ -403,6 +421,12 @@ void Net::Read(const std::string &filename) {
                 break;
             case kReLU:
                 layer = new ReLU();
+                break;
+            case kSigmoid:
+                layer = new Sigmoid();
+                break;
+            case kTanh:
+                layer = new Tanh();
                 break;
             case kSoftmax:
                 layer = new Softmax();

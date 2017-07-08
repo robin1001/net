@@ -11,7 +11,9 @@ from keras.layers import Dense, Dropout
 class LayerType:
     fully_connect = 0x00
     relu = 0x01
-    softmax = 0x02
+    sigmoid = 0x02
+    tanh = 0x03
+    softmax = 0x04
 
 def error_msg(msg):
     print(msg)
@@ -37,9 +39,15 @@ def convert_activation(fid, act, in_dim, out_dim):
     if act == 'relu': 
         print(act, in_dim, out_dim)
         write_layer_head(fid, LayerType.relu, in_dim, out_dim)
-    elif act == 'softmax':  
-        write_layer_head(fid, LayerType.softmax, in_dim, out_dim)
+    elif act == 'sigmoid':  
         print(act, in_dim, out_dim)
+        write_layer_head(fid, LayerType.sigmoid, in_dim, out_dim)
+    elif act == 'tanh':  
+        print(act, in_dim, out_dim)
+        write_layer_head(fid, LayerType.tanh, in_dim, out_dim)
+    elif act == 'softmax':  
+        print(act, in_dim, out_dim)
+        write_layer_head(fid, LayerType.softmax, in_dim, out_dim)
     elif act == 'linear': 
         pass
     else:
