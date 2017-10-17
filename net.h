@@ -111,7 +111,6 @@ public:
     void Read(std::istream &is);
     void Write(std::ostream &os);
     void Forward(const Matrix<float> &in, Matrix<float> *out);
-    void Forward(const Matrix<uint8_t> &in, Matrix<uint8_t> *out); 
     int32_t InDim() const { return in_dim_; }
     int32_t OutDim() const { return out_dim_; }
     virtual LayerType Type() const { return type_; };
@@ -120,14 +119,7 @@ public:
                   << " out_dim " << out_dim_ << "\n";
     }
 protected:
-    virtual void ForwardFunc(const Matrix<float> &in, Matrix<float> *out) {
-        ERROR("not implement, or call this method by a quantize layer "
-              "layer type: %s", LayerTypeToString(type_).c_str());
-    }
-    virtual void ForwardFunc(const Matrix<uint8_t> &in, Matrix<uint8_t> *out) {
-        ERROR("not implement, or call this method by a float layer "
-              "layer type: %s", LayerTypeToString(type_).c_str());
-    }
+    virtual void ForwardFunc(const Matrix<float> &in, Matrix<float> *out) = 0;
     virtual void ReadData(std::istream &is) {};
     virtual void WriteData(std::ostream &os) {};
     int32_t in_dim_,out_dim_;

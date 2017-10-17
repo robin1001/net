@@ -177,7 +177,7 @@ void ChooseQuantizationParams(float min, float max,
         nudged_zero_point = qmax;
     } else {
         nudged_zero_point =
-            static_cast<std::uint8_t>(std::round(initial_zero_point));
+            static_cast<std::uint8_t>(round(initial_zero_point));
     }
     *zero_point = nudged_zero_point;
     *scale = scale_double;
@@ -191,7 +191,7 @@ void QuantizeData(float *src, int n, float *scale,
     for (int i = 0; i < n; i++) {
         float point = (*zero_point) + src[i] / (*scale);  
         float round_point = std::max(0.f, std::min(255.f, point));
-        dest[i] = static_cast<uint8_t>(std::round(round_point));
+        dest[i] = static_cast<uint8_t>(round(round_point));
     }
 }
 
@@ -256,14 +256,6 @@ void Layer::Write(std::ostream &os) {
 }
 
 void Layer::Forward(const Matrix<float> &in, Matrix<float> *out) {
-    assert(in.NumRows() != 0);
-    assert(in.NumCols() != 0);
-    assert(out != NULL);
-    out->Resize(in.NumRows(), out_dim_);
-    ForwardFunc(in, out);
-}
-
-void Layer::Forward(const Matrix<uint8_t> &in, Matrix<uint8_t> *out) {
     assert(in.NumRows() != 0);
     assert(in.NumCols() != 0);
     assert(out != NULL);

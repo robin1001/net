@@ -1,5 +1,10 @@
 CXX = g++
-CXXFLAGS = -std=c++11 -I . -lopenblas -lpthread -msse4.1 -D USE_BLAS # -D QUANTIZE_BIAS
+
+CXXFLAGS = -g -std=c++11 -I . -lopenblas -lpthread -msse4.1 -D USE_BLAS # -D QUANTIZE_BIAS
+# CXXFLAGS for arm/android
+#CXXFLAGS = -std=c++11 -I . -lopenblas -lpthread -D USE_BLAS \
+#           -mhard-float -D_NDK_MATH_NO_SOFTFP=1 \
+#           -Wl,--no-warn-mismatch
 
 OBJ = net.o
 
