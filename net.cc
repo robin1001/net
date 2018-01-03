@@ -14,42 +14,48 @@
 
 /* Matrix & Vector Defination */
 
-template <typename DType>
-Matrix<DType>::Matrix(int32_t row, int32_t col): 
-        rows_(row), cols_(col), data_(NULL), holder_(true) {
-    Resize(rows_, cols_);
-}
-
-template <typename DType>
-Matrix<DType>::Matrix(DType *data, int32_t row, int32_t col):
-        rows_(row), cols_(col), data_(data), holder_(false) {
-}
-
-template <typename DType>
-void Matrix<DType>::Resize(int32_t row, int32_t col) {
-    if (row * col == 0) return;
-    if (data_ == NULL || row * col != rows_ * cols_) {
-        if (holder_ && data_ != NULL) delete [] data_;
-        rows_ = row;
-        cols_ = col;
-        data_ = new DType[row * col]();
-        holder_ = true;
+template <class DType, int32_t Dim>
+void Tensor<DType, Dim>::Resize(const std::vector<int32_t> &shape) {
+    assert(shape_.size() == Dim);
+    assert(shape.size() == Dim);
+    int32_t size = GetShapeSize(shape);
+    if (size == 0 || size == this->Size()) {
+        shape_ = shape;
+        return;
     }
+    if (holder_ && data_ != nullptr) delete [] data_;
+    data_ = new DType[size]();
+    shape_ = shape;
+    holder_ = true;
 }
 
-template <typename DType>
-void Matrix<DType>::Read(std::istream &is) {
-    is.read((char *)&rows_, sizeof(int32_t)); 
-    is.read((char *)&cols_, sizeof(int32_t)); 
-    Resize(rows_, cols_);
-    is.read((char *)data_, sizeof(DType) * rows_ * cols_);
+template <class DType, int32_t Dim>
+int32_t Tensor<DType, Dim>::GetShapeSize(
+        const std::vector<int32_t> &shape) const {
+    if (shape.size() == 0) return 0;
+    int32_t size = 1;
+    for (int32_t i = 0; i < shape.size(); i++) size *= shape[i];
+    return size;
 }
 
-template <typename DType>
-void Matrix<DType>::Write(std::ostream &os) {
-    os.write((char *)&rows_, sizeof(int32_t)); 
-    os.write((char *)&cols_, sizeof(int32_t)); 
-    os.write((char *)data_, sizeof(DType) * rows_ * cols_);
+template <class DType, int32_t Dim>
+void Tensor<DType, Dim>::Read(std::istream &is) {
+    std::vector<int> shape(Dim, 0);
+    is.read((char *)shape.data(), sizeof(int32_t) * Dim); 
+    Resize(shape);
+    is.read((char *)data_, sizeof(DType) * Size());
+}
+
+template <class DType, int32_t Dim>
+void Tensor<DType, Dim>::Write(std::ostream &os) const {
+    os.write((char *)shape_.data(), sizeof(int32_t) * Dim);
+    os.write((char *)data_, sizeof(DType) * Size());
+}
+
+template <class DType, int32_t Dim>
+void Tensor<DType, Dim>::CopyFrom(const Tensor<DType, Dim> &tensor) {
+    Resize(tensor.Shape());
+    memcpy(data_, tensor.Data(), Size() * sizeof(DType));
 }
 
 template <typename DType>
@@ -57,8 +63,8 @@ void Matrix<DType>::Mul(const Matrix<DType> &mat1, const Matrix<DType> &mat2,
         bool transpose, float alpha) {
     if (!transpose) {
         assert(mat1.NumCols() == mat2.NumRows());
-        assert(rows_ == mat1.NumRows());
-        assert(cols_ == mat2.NumCols());
+        assert(NumRows() == mat1.NumRows());
+        assert(NumCols() == mat2.NumCols());
         //this->Resize(mat1.NumRows(), mat2.NumCols());
         for (int i = 0; i < mat1.NumRows(); i++) {
             for (int j = 0; j < mat2.NumCols(); j++) {
@@ -71,8 +77,8 @@ void Matrix<DType>::Mul(const Matrix<DType> &mat1, const Matrix<DType> &mat2,
     }
     else {
         assert(mat1.NumCols() == mat2.NumCols());
-        assert(rows_ == mat1.NumRows());
-        assert(cols_ == mat2.NumRows());
+        assert(NumRows() == mat1.NumRows());
+        assert(NumCols() == mat2.NumRows());
         this->Resize(mat1.NumRows(), mat2.NumRows());
         for (int i = 0; i < mat1.NumRows(); i++) {
             for (int j = 0; j < mat2.NumRows(); j++) {
@@ -88,9 +94,9 @@ void Matrix<DType>::Mul(const Matrix<DType> &mat1, const Matrix<DType> &mat2,
 // cblas_sger
 template<typename DType>
 void Matrix<DType>::AddVec(const Vector<DType> &vec) {
-    assert(cols_ == vec.Dim());
-    for (int i = 0; i < rows_; i++) {
-        for (int j = 0; j < cols_; j++) {
+    assert(NumCols() == vec.Size());
+    for (int i = 0; i < NumRows(); i++) {
+        for (int j = 0; j < NumCols(); j++) {
             (*this)(i, j) += vec(j); 
         }
     }
@@ -101,13 +107,13 @@ template <>
 void Matrix<float>::Mul(const Matrix<float> &mat1, const Matrix<float> &mat2, 
         bool transpose, float alpha) {
     assert((!transpose && mat1.NumCols() == mat2.NumRows() && 
-            rows_ == mat1.NumRows() && cols_ == mat2.NumCols()) ||
+            NumRows() == mat1.NumRows() && NumCols() == mat2.NumCols()) ||
             (transpose && mat1.NumCols() == mat2.NumCols() && 
-            rows_ == mat1.NumRows() && cols_ == mat2.NumRows()));
+            NumRows() == mat1.NumRows() && NumCols() == mat2.NumRows()));
     cblas_sgemm(CblasRowMajor, CblasNoTrans, !transpose ? CblasNoTrans : CblasTrans,
-                rows_, cols_, mat1.NumCols(), 1.0, 
+                NumRows(), NumCols(), mat1.NumCols(), 1.0, 
                 mat1.Data(), mat1.NumCols(), mat2.Data(), mat2.NumCols(),
-                alpha, data_, cols_);
+                alpha, this->data_, NumCols());
 }
 #endif
 
@@ -122,71 +128,25 @@ void Matrix<DType>::Transpose(const Matrix<DType> &mat) {
 }
 
 template <typename DType>
-void Matrix<DType>::CopyFrom(const Matrix<DType> &mat) {
-    Resize(mat.NumRows(), mat.NumCols());
-    memcpy(data_, mat.Data(), rows_ * cols_ * sizeof(DType));
-}
-
-template <typename DType>
 Matrix<DType> Matrix<DType>::RowRange(int start, int length) const {
-    return Matrix<DType>(data_ + start * cols_, length, cols_);
+    return Matrix<DType>(this->data_ + start * NumCols(), length, NumCols());
 }
 
 template <typename DType>
 Vector<DType> Matrix<DType>::Row(int row) const {
-    return Vector<DType>(data_ + row * cols_, cols_);
-}
-template <typename DType>
-Vector<DType>::Vector(int32_t dim): 
-        dim_(dim), data_(NULL), holder_(true) {
-    Resize(dim);
-}
-
-template <typename DType>
-Vector<DType>::Vector(DType *data, int32_t dim): 
-        dim_(dim), data_(data), holder_(false) {
-}
-
-template <typename DType>
-void Vector<DType>::Resize(int32_t dim) {
-    if (dim == 0) return;
-    if (data_ == NULL || dim != dim_) {
-        if (holder_ && data_ != NULL) delete [] data_;
-        dim_ = dim;
-        data_ = new DType[dim]();
-        holder_ = true;
-    }
-}
-
-template <typename DType>
-void Vector<DType>::Read(std::istream &is) {
-    is.read((char *)&dim_, sizeof(int32_t)); 
-    Resize(dim_);
-    is.read((char *)data_, sizeof(DType) * dim_);
-}
-
-template <typename DType>
-void Vector<DType>::Write(std::ostream &os) {
-    os.write((char *)&dim_, sizeof(int32_t)); 
-    os.write((char *)data_, sizeof(DType) * dim_);
-}
-
-template <typename DType>
-void Vector<DType>::CopyFrom(const Vector<DType> &vec) {
-    Resize(vec.Dim());
-    memcpy(data_, vec.Data(), dim_ * sizeof(DType));
+    return Vector<DType>(this->data_ + row * NumCols(), NumCols());
 }
 
 template <typename DType>
 void Vector<DType>::Add(const Vector<DType> &vec, float alpha) {
-    for (int i = 0; i < dim_; i++) {
+    for (int i = 0; i < this->Size(); i++) {
         (*this)(i) += alpha * vec(i);
     }
 }
 
 template <typename DType>
 void Vector<DType>::Scale(float alpha) {
-    for (int i = 0; i < dim_; i++) {
+    for (int i = 0; i < this->Size(); i++) {
         (*this)(i) *= alpha;
     }
 }
@@ -346,7 +306,7 @@ void Tanh::ForwardFunc(const Matrix<float> &in, Matrix<float> *out) {
 void FullyConnect::ReadData(std::istream &is) {
     w_.Read(is);
     b_.Read(is);
-    assert(w_.NumRows() == b_.Dim());
+    assert(w_.NumRows() == b_.Size());
 }
 
 void FullyConnect::WriteData(std::ostream &os) {
@@ -364,40 +324,21 @@ void QuantizeFullyConnect::QuantizeFrom(const Matrix<float> &w,
     w_.Resize(w.NumRows(), w.NumCols());
     int w_size = w.NumRows() * w.NumCols();
     QuantizeData(w.Data(), w_size, &w_scale_, &w_zero_point_, w_.Data());
-#ifdef QUANTIZE_BIAS
-    b_.Resize(b.Dim()); 
-    dequantize_b_.Resize(b.Dim());
-    QuantizeData(b.Data(), b.Dim(), &b_scale_, &b_zero_point_, b_.Data());
-    DequantizeData(b_.Data(), b_.Dim(), b_scale_, b_zero_point_, dequantize_b_.Data());
-#else
     b_.CopyFrom(b);
-#endif
 }
 
 void QuantizeFullyConnect::ReadData(std::istream &is) {
     is.read((char *)&w_scale_, sizeof(float));
     is.read((char *)&w_zero_point_, sizeof(uint8_t));
     w_.Read(is);
-#ifdef QUANTIZE_BIAS
-    is.read((char *)&b_scale_, sizeof(float));
-    is.read((char *)&b_zero_point_, sizeof(uint8_t));
     b_.Read(is);
-    dequantize_b_.Resize(b_.Dim());
-    DequantizeData(b_.Data(), b_.Dim(), b_scale_, b_zero_point_, dequantize_b_.Data());
-#else
-    b_.Read(is);
-#endif
-    assert(w_.NumRows() == b_.Dim());
+    assert(w_.NumRows() == b_.Size());
 }
 
 void QuantizeFullyConnect::WriteData(std::ostream &os) {
     os.write((char *)&w_scale_, sizeof(float));
     os.write((char *)&w_zero_point_, sizeof(uint8_t));
     w_.Write(os);
-#ifdef QUANTIZE_BIAS
-    os.write((char *)&b_scale_, sizeof(float));
-    os.write((char *)&b_zero_point_, sizeof(uint8_t));
-#endif
     b_.Write(os);
 }
 
@@ -418,11 +359,7 @@ void QuantizeFullyConnect::ForwardFunc(const Matrix<float> &in,
     DequantizeData(quantize_out_.Data(), out->NumRows() * out->NumCols(), 
         out_scale, 0, out->Data());
     //// add bias
-#ifdef QUANTIZE_BIAS
-    out->AddVec(dequantize_b_); 
-#else
     out->AddVec(b_);
-#endif
 }
 
 Net::~Net() {

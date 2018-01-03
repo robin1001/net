@@ -16,80 +16,97 @@
 #include "utils.h"
 
 /* Matrix & Vector Defination */
+template <class DType, int32_t Dim>
+class Tensor {
+public:
+    Tensor(DType *data=nullptr): data_(data), shape_(Dim, 0), holder_(false) {}
+    Tensor(const Tensor<DType, Dim> &tensor) {
+        CopyFrom(tensor);
+    }
+    virtual ~Tensor() {
+        if (holder_ && data_ != nullptr) delete [] data_;
+    }
+    void Read(std::istream &is);
+    void Write(std::ostream &os) const;
+    void Resize(const std::vector<int32_t> &shape);
+    int32_t Size() const {
+        GetShapeSize(shape_);
+    }
+    DType *Data() const { return data_; } 
+    std::vector<int32_t> Shape() const { return shape_; }
+    virtual void CopyFrom(const Tensor<DType, Dim> &tensor); 
+protected:
+    int32_t GetShapeSize(const std::vector<int32_t> &shape) const;
+protected:
+    DType *data_;
+    std::vector<int32_t> shape_;
+    bool holder_;
+};
 
 template <typename DType>
 class Vector;
 
 template <typename DType>
-class Matrix {
+class Matrix : public Tensor<DType, 2> {
 public: 
-    Matrix(int32_t row = 0, int32_t col = 0); 
-    Matrix(DType *data, int32_t row, int32_t col); 
-    virtual ~Matrix() { 
-        if (holder_ && data_ != NULL) delete [] data_; 
+    Matrix(int32_t row = 0, int32_t col = 0) {
+        Resize(row, col);
     }
-    void Resize(int32_t row, int32_t col);
-    DType *Data() const { return data_; }
-    int32_t NumRows() const { return rows_; }
-    int32_t NumCols() const { return cols_; }
-    void Read(std::istream &is);
-    void Write(std::ostream &os);
+    Matrix(DType *data, int32_t row, int32_t col): Tensor<DType, 2>(data) {
+        this->shape_[0] = row;
+        this->shape_[1] = col;
+    }
+    void Resize(int32_t row, int32_t col) {
+        std::vector<int32_t> shape = { row, col };
+        Tensor<DType, 2>::Resize(shape);
+    }
+    int32_t NumRows() const { return this->shape_[0]; }
+    int32_t NumCols() const { return this->shape_[1]; }
     const DType operator () (int r, int c) const {
-        assert(r < rows_);
-        assert(c < cols_);
-        return *(data_ + r * cols_ + c);
+        assert(r < NumRows());
+        assert(c < NumCols());
+        return *(this->data_ + r * NumCols() + c);
     }
     DType& operator () (int r, int c) {
-        assert(r < rows_);
-        assert(c < cols_);
-        return *(data_ + r * cols_ + c);
+        assert(r < NumRows());
+        assert(c < NumCols());
+        return *(this->data_ + r * NumCols() + c);
     }
     // *this = alpha*this + mat1*mat2
     void Mul(const Matrix<DType> &mat1, const Matrix<DType> &mat2, 
              bool transpose = false, float alpha = 0.0);
     void Transpose(const Matrix<DType> &mat);
     void AddVec(const Vector<DType> &vec);
-    void CopyFrom(const Matrix<DType> &mat); 
     Vector<DType> Row(int row) const;
     Matrix<DType> RowRange(int start, int length) const;
-private:
-    int32_t rows_, cols_;
-    DType *data_;
-    bool holder_; // if hold the memory
-    //DISALLOW_COPY_AND_ASSIGN(Matrix);
 };
 
-
-template <typename DType>
-class Vector {
-public: 
-    Vector(int32_t dim = 0); 
-    Vector(DType *data, int32_t dim); 
-    virtual ~Vector() { 
-        if (holder_ && data_ != NULL) delete [] data_; 
+template <class DType>
+class Vector: public Tensor<DType, 1> {
+public:
+    Vector(int32_t dim = 0) {
+        Resize(dim);
     }
-    void Resize(int32_t dim);
-    DType *Data() const { return data_; }
-    int32_t Dim() const { return dim_; }
-    void Read(std::istream &is);
-    void Write(std::ostream &os);
+    Vector(DType *data, int dim): Tensor<DType, 1>(data) {
+        assert(this->shape_.size() == 1);
+        this->shape_[0] = dim;
+    }
+    void Resize(int32_t dim) {
+        std::vector<int32_t> shape = { dim };
+        Tensor<DType, 1>::Resize(shape);
+    }
     const DType operator () (int n) const {
-        assert(n < dim_);
-        return *(data_ + n);
+        assert(n < this->shape_[0]);
+        return *(this->data_ + n);
     }
     DType& operator () (int n) {
-        assert(n < dim_);
-        return *(data_ + n);
+        assert(n < this->shape_[0]);
+        return *(this->data_ + n);
     }
-    void CopyFrom(const Vector<DType> &vec);
     void Add(const Vector<DType> &vec, float alpha = 1.0);
     void Scale(float alpha);
-private:
-    int32_t dim_;
-    DType *data_;
-    bool holder_; // if hold the memory
-    //DISALLOW_COPY_AND_ASSIGN(Vector);
 };
+
 
 /* Quantization Functions */
 
@@ -193,14 +210,8 @@ private:
     Matrix<uint8_t> w_; // w_ is cols major, so it's size (out_dim, in_dim)
     float w_scale_;
     uint8_t w_zero_point_;
-#ifdef QUANTIZE_BIAS
-    Vector<uint8_t> b_;
-    Vector<float> dequantize_b_;
-    float b_scale_;
-    uint8_t b_zero_point_;
-#else
+
     Vector<float> b_; // use float bias
-#endif
     Matrix<int32_t> quantize_out_;
     Matrix<uint8_t> quantize_in_;
 };
@@ -238,7 +249,5 @@ protected:
     std::vector<Layer *> layers_;
     std::vector<Matrix<float> *> forward_buf_;
 };
-
-
 
 #endif
