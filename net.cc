@@ -208,9 +208,9 @@ void DequantizeData(DType *src, int n, float scale,
 template <bool transpose>
 void IntegerGemm(const Matrix<uint8_t> &mat1, const Matrix<uint8_t> &mat2, 
         int offset1, int offset2, Matrix<int32_t> *out) {
-    assert((!transpose && mat1.NumCols() == mat2.NumRows() && 
-            out->NumRows() == mat1.NumRows() && out->NumCols() == mat2.NumCols()) ||
-            (transpose && mat1.NumCols() == mat2.NumCols() && 
+    assert(transpose || (mat1.NumCols() == mat2.NumRows() && 
+            out->NumRows() == mat1.NumRows() && out->NumCols() == mat2.NumCols())); 
+    assert(!transpose || (mat1.NumCols() == mat2.NumCols() && 
             out->NumRows() == mat1.NumRows() && out->NumCols() == mat2.NumRows()));
     using namespace gemmlowp;
     //left(right)-hand side
@@ -317,6 +317,22 @@ void FullyConnect::WriteData(std::ostream &os) {
 void FullyConnect::ForwardFunc(const Matrix<float> &in, Matrix<float> *out) {
     out->Mul(in, w_, true);
     out->AddVec(b_);
+}
+
+Layer* FullyConnect::Quantize() const {
+    QuantizeFullyConnect *layer = new QuantizeFullyConnect();
+    Matrix<uint8_t> quantize_weight(w_.NumRows(), w_.NumCols());
+    float scale = 0;
+    uint8_t zero_point= 0;
+    QuantizeData(w_.Data(), w_.Size(), &scale, &zero_point, 
+                 quantize_weight.Data());
+    layer->SetWeight(quantize_weight);
+    layer->SetWeightScale(scale);
+    layer->SetWeightZeroPoint(zero_point);
+    layer->SetBias(b_);
+    layer->SetInputDim(in_dim_);
+    layer->SetOutputDim(out_dim_);
+    return layer;
 }
 
 void QuantizeFullyConnect::QuantizeFrom(const Matrix<float> &w, 
@@ -453,43 +469,7 @@ void Net::Info() const {
 void Net::Quantize(Net *quantize_net) const {
     quantize_net->Clear();
     for (int i = 0; i < layers_.size(); i++) {
-        int32_t in_dim = layers_[i]->InDim(), out_dim = layers_[i]->OutDim();
-        LayerType type = layers_[i]->Type();
-        switch (type) {
-            case kFullyConnect: {
-                    QuantizeFullyConnect *quantize_fully_layer = 
-                        new QuantizeFullyConnect(in_dim, out_dim);
-                    FullyConnect *fully_layer = dynamic_cast<FullyConnect*>(layers_[i]); 
-                    const Matrix<float> &w = fully_layer->W();
-                    const Vector<float> &b = fully_layer->B();
-                    quantize_fully_layer->QuantizeFrom(w, b);
-                    quantize_net->AddLayer(quantize_fully_layer);
-                }
-                break;
-            case kSoftmax: {
-                    Softmax *softmax = new Softmax(in_dim, out_dim);
-                    quantize_net->AddLayer(softmax);
-                }
-                break;
-            case kReLU: {
-                    ReLU *relu = new ReLU(in_dim, out_dim);
-                    quantize_net->AddLayer(relu);
-                }
-                break;
-            case kSigmoid: {
-                    Sigmoid *sigmoid = new Sigmoid(in_dim, out_dim);
-                    quantize_net->AddLayer(sigmoid);
-                }
-                break;
-            case kTanh: {
-                    Tanh *tanh = new Tanh(in_dim, out_dim);
-                    quantize_net->AddLayer(tanh);
-                }
-                break;
-            default:
-                ERROR("Unable to quantize layer, type %s", 
-                        LayerTypeToString(type).c_str());
-        }
+        quantize_net->AddLayer(layers_[i]->Quantize());
     }
 }
 

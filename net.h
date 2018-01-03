@@ -139,10 +139,16 @@ public:
     void Forward(const Matrix<float> &in, Matrix<float> *out);
     int32_t InDim() const { return in_dim_; }
     int32_t OutDim() const { return out_dim_; }
+    void SetInputDim(int32_t in_dim) { in_dim_ = in_dim; }
+    void SetOutputDim(int32_t out_dim) { out_dim_ = out_dim; }
     virtual LayerType Type() const { return type_; };
     void Info() const {
         std::cout << LayerTypeToString(type_) << " in_dim " << in_dim_ 
                   << " out_dim " << out_dim_ << "\n";
+    }
+    virtual Layer* Copy() const = 0;
+    virtual Layer* Quantize() const {
+        return this->Copy();
     }
 protected:
     virtual void ForwardFunc(const Matrix<float> &in, Matrix<float> *out) = 0;
@@ -156,6 +162,7 @@ class ReLU: public Layer {
 public:
     ReLU(int32_t in_dim = 0, int32_t out_dim = 0): 
         Layer(in_dim, out_dim, kReLU) {}
+    Layer * Copy() const { return new ReLU(*this); }
 private:
     void ForwardFunc(const Matrix<float> &in, Matrix<float> *out);
 };
@@ -164,6 +171,7 @@ class Sigmoid: public Layer {
 public:
     Sigmoid(int32_t in_dim = 0, int32_t out_dim = 0): 
         Layer(in_dim, out_dim, kSigmoid) {}
+    Layer * Copy() const { return new Sigmoid(*this); }
 private:
     void ForwardFunc(const Matrix<float> &in, Matrix<float> *out);
 };
@@ -172,6 +180,7 @@ class Tanh: public Layer {
 public:
     Tanh(int32_t in_dim = 0, int32_t out_dim = 0): 
         Layer(in_dim, out_dim, kTanh) {}
+    Layer * Copy() const { return new Tanh(*this); }
 private:
     void ForwardFunc(const Matrix<float> &in, Matrix<float> *out);
 };
@@ -180,6 +189,7 @@ class Softmax: public Layer {
 public:
     Softmax(int32_t in_dim = 0, int32_t out_dim = 0): 
         Layer(in_dim, out_dim, kSoftmax) {}
+    Layer * Copy() const { return new Softmax(*this); }
 private:
     void ForwardFunc(const Matrix<float> &in, Matrix<float> *out);
 };
@@ -190,6 +200,8 @@ public:
         Layer(in_dim, out_dim, kFullyConnect) {}
     const Matrix<float> & W() { return w_; }
     const Vector<float> & B() { return b_; }
+    Layer * Copy() const { return new FullyConnect(*this); }
+    virtual Layer* Quantize() const; 
 private:
     void ReadData(std::istream &is);
     void WriteData(std::ostream &os);
@@ -203,6 +215,11 @@ public:
     QuantizeFullyConnect(int32_t in_dim = 0, int32_t out_dim = 0): 
         Layer(in_dim, out_dim, kQuantizeFullyConnect) {}
     void QuantizeFrom(const Matrix<float> &w, const Vector<float> &b);
+    Layer * Copy() const { return new QuantizeFullyConnect(*this); }
+    void SetWeight(const Matrix<uint8_t> &weight) { w_.CopyFrom(weight); }
+    void SetBias(const Vector<float> &bias) { b_.CopyFrom(bias); }
+    void SetWeightScale(float scale) { w_scale_ = scale; };
+    void SetWeightZeroPoint(uint8_t zero_point) { w_zero_point_ = zero_point; }
 private:
     void ReadData(std::istream &is);
     void WriteData(std::ostream &os);
