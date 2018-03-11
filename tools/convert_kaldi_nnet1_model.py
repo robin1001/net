@@ -115,6 +115,10 @@ class Sigmoid(Component):
     def write(self, fid):
         write_layer_head(fid, LayerType.sigmoid, self.in_dim, self.out_dim)
 
+class ReLU(Component):
+    def write(self, fid):
+        write_layer_head(fid, LayerType.relu, self.in_dim, self.out_dim)
+
 class Tanh(Component):
     def write(self, fid):
         write_layer_head(fid, LayerType.tanh, self.in_dim, self.out_dim)
@@ -150,6 +154,10 @@ def read_nnet1(filename):
                 net.append(layer)
             elif token == '<Tanh>': 
                 layer = Tanh()
+                offset = layer.read(arr, offset + 1)
+                net.append(layer)
+            elif token == '<ReLU>': 
+                layer = ReLU()
                 offset = layer.read(arr, offset + 1)
                 net.append(layer)
             elif token == '<Softmax>': 
